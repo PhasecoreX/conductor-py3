@@ -66,10 +66,6 @@ class Locomotive(object):
             self.get(url)
         self.retry_stop = timeout * 1000
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
     def __get_element(self, select_by, select_by_value=None):
         """Gets an element, by a select type"""
         if select_by[:1] == "#":
@@ -162,6 +158,10 @@ class Locomotive(object):
         else:
             raise NotImplementedError("Alert option '{0}' not supported! (Yet?)".format(option))
 
+    @retry(wait_exponential_multiplier=retry_exp_mult,
+           wait_exponential_max=retry_exp_max,
+           stop_max_delay=retry_stop,
+           retry_on_exception=retry_on_selenium_exceptions)
     def text(self, select_by, select_by_value=None, set_value=None):
         """Gets or sets the value of an element
         You can pass a CSS ID (e.g. '#textboxid') in the select_by,
@@ -175,6 +175,10 @@ class Locomotive(object):
             element.send_keys(set_value)
             return self
 
+    @retry(wait_exponential_multiplier=retry_exp_mult,
+           wait_exponential_max=retry_exp_max,
+           stop_max_delay=retry_stop,
+           retry_on_exception=retry_on_selenium_exceptions)
     def click(self, select_by, select_by_value=None):
         """Clicks an element
         You can pass a CSS ID (e.g. '#submitbuttonid') in the select_by,
@@ -183,6 +187,10 @@ class Locomotive(object):
         self.__get_element(select_by, select_by_value).click()
         return self
 
+    @retry(wait_exponential_multiplier=retry_exp_mult,
+           wait_exponential_max=retry_exp_max,
+           stop_max_delay=retry_stop,
+           retry_on_exception=retry_on_selenium_exceptions)
     def select(self, select_by, select_by_value, option_type, set_value=None):
         """Gets or sets the option value of a select element"""
         option_type = option_type.lower()
