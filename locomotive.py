@@ -149,7 +149,7 @@ class Locomotive(object):
 
     def alert(self, option, username="", password=""):
         """Clicks an option in an alert"""
-        if option in ["ok", "y", "yes", "accept"]:
+        if option in ["ok", "y", "ye", "yes", "accept"]:
             self.driver.switch_to_alert().accept()
         elif option in ["cancel", "n", "no", "dismiss"]:
             self.driver.switch_to_alert().dismiss()
@@ -232,11 +232,11 @@ class Locomotive(object):
 
     def text_c(self, css_selector, set_text=None):
         """Gets or sets the text/value of an element, selected by custom CSS selector"""
-        return self.text("id", css_selector, set_text)
+        return self.text("css", css_selector, set_text)
 
     def text_x(self, xpath_selector, set_text=None):
         """Gets or sets the text/value of an element, selected by custom XPATH selector"""
-        return self.text("name", xpath_selector, set_text)
+        return self.text("xpath", xpath_selector, set_text)
 
     # Click
     def click_i(self, css_id):
