@@ -30,6 +30,16 @@ def retry_on_selenium_exceptions(exc):
             exc, NoSuchFrameException)
 
 
+def clean_selector(selector):
+    """Returns a selector tuple based off of a CSS string"""
+    if isinstance(selector, tuple):
+        return (selector[0].lower(), selector[1])
+    elif isinstance(selector, str):
+        return ("css", selector)
+    else:
+        raise TypeError("selector must be a string or tuple (select_by, select_value)")
+
+
 class Locomotive(object):
     """The locomotive class"""
     # pylint: disable=too-many-public-methods
@@ -40,7 +50,12 @@ class Locomotive(object):
     retry_stop = 10000
 
     def __init__(self, browser, url=None, timeout=10):
-        """Ceates a new instance of Locomotive, given a browser name"""
+        """Ceates a new instance of Locomotive, given a browser name
+        There are some optional parameters you can pass in:
+
+        url:     Starting URL, so you don't have to manually call .get() afterwards
+        timeout: How long (in seconds) you want Locomotive to keep retrying an action
+        """
         # pylint: disable=redefined-variable-type
         browser = browser.lower()
         if browser == "chrome":
@@ -66,25 +81,31 @@ class Locomotive(object):
             self.get(url)
         self.retry_stop = timeout * 1000
 
-    def __get_element(self, select_by, select_by_value=None):
-        """Gets an element, by a select type"""
-        if select_by[:1] == "#":
-            select_by_value = select_by.strip("#")
-            select_by = "id"
-        if select_by_value is None:
-            raise TypeError("select_by_value must not be None for non-CSS ID selectors")
-        select_by = select_by.lower()
-        if select_by == "id":
-            return self.driver.find_element_by_id(select_by_value.strip("#"))
-        if select_by == "name":
-            return self.driver.find_element_by_name(select_by_value)
-        if select_by == "link":
-            return self.driver.find_element_by_link_text(select_by_value)
+    def __get_element(self, selector, get_multiple=False):
+        select_by, select_value = clean_selector(selector)
+        # Find elements
         if select_by == "css":
-            return self.driver.find_element_by_css_selector(select_by_value)
-        if select_by == "xpath":
-            return self.driver.find_element_by_xpath(select_by_value)
-        raise NotImplementedError("select_by '{0}' not supported! (Yet?)".format(select_by))
+            elements = self.driver.find_elements_by_css_selector(select_value)
+        elif select_by == "id":
+            elements = self.driver.find_elements_by_id(select_value.strip("#"))
+        elif select_by == "name":
+            elements = self.driver.find_elements_by_name(select_value)
+        elif select_by == "class":
+            elements = self.driver.find_elements_by_class_name(select_value)
+        elif select_by == "link":
+            elements = self.driver.find_elements_by_link_text(select_value)
+        elif select_by == "xpath":
+            elements = self.driver.find_elements_by_xpath(select_value)
+        else:
+            raise NotImplementedError("select_by '{0}' not supported! (Yet?)".format(select_by))
+        # Return one or all of the elements
+        if get_multiple:
+            return elements
+        elif len(elements) == 0:
+            raise NoSuchElementException("No element found matching {0}({1})".format(select_by,
+                                                                                     select_value))
+        else:
+            return elements[0]
 
     @retry(wait_exponential_multiplier=retry_exp_mult,
            wait_exponential_max=retry_exp_max,
@@ -147,6 +168,74 @@ class Locomotive(object):
         self.driver.get(url)
         return self
 
+    # True/False methods
+
+    def is_checked(self, selector):
+        """Returns true if the selected checkbox/radio is checked/selected, false if not"""
+        return self.__get_element(selector).is_selected()
+
+    def is_present(self, selector):
+        """Returns true if at least one of the defined element is present and selectable"""
+        return len(self.__get_element(selector, get_multiple=True)) > 0
+
+    # Validation methods
+
+    def validate_present(self, selector):
+        """Validates that a element is selectable"""
+        select_by, select_value = clean_selector(selector)
+        assert self.is_present(
+            selector) is True, "{0}({1}) is not present on page, when it should be".format(
+                select_by, select_value)
+        return self
+
+    def validate_not_present(self, selector):
+        """Validates that a element is not selectable"""
+        select_by, select_value = clean_selector(selector)
+        assert self.is_present(
+            selector) is False, "{0}({1}) is present on page, when it should not be".format(
+                select_by, select_value)
+        return self
+
+    def validate_text(self, selector, text):
+        """Validates an elements text matches the given text"""
+        select_by, select_value = clean_selector(selector)
+        actual_text = self.text(selector)
+        assert actual_text == text, "{0}({1}) text does not equal '{2}' (actual: '{3}')".format(
+            select_by, select_value, text, actual_text)
+
+    def validate_text_not(self, selector, text):
+        """Validates an elements text matches the given text"""
+        select_by, select_value = clean_selector(selector)
+        assert self.text(
+            selector) != text, "{0}({1}) text does equal '{2}', when it should not".format(
+                select_by, select_value, text)
+
+    def validate_source_contains(self, text):
+        """Validates that text is present in the page source"""
+        assert text in self.driver.page_source, "{0} is not in page source, when it should be".format(
+            text)
+        return self
+
+    def validate_source_not_contains(self, text):
+        """Validates that text is present in the page source"""
+        assert text not in self.driver.page_source, "{0} is in page source, when it should not be".format(
+            text)
+        return self
+
+    def validate_checked(self, selector):
+        """Validates that a checkbox is checked"""
+        select_by, select_value = clean_selector(selector)
+        assert self.is_checked(selector), "{0}({1}) is not checked, when it should be".format(
+            select_by, select_value)
+        return self
+
+    def validate_unchecked(self, selector):
+        """Validates that a checkbox is checked"""
+        select_by, select_value = clean_selector(selector)
+        assert not self.is_checked(selector), "{0}({1}) is checked, when it should not be".format(
+            select_by, select_value)
+        return self
+
     def alert(self, option, username="", password=""):
         """Clicks an option in an alert"""
         if option in ["ok", "y", "ye", "yes", "accept"]:
@@ -157,19 +246,22 @@ class Locomotive(object):
             self.driver.switch_to_alert().authenticate(username, password)
         else:
             raise NotImplementedError("Alert option '{0}' not supported! (Yet?)".format(option))
+        return self
 
     @retry(wait_exponential_multiplier=retry_exp_mult,
            wait_exponential_max=retry_exp_max,
            stop_max_delay=retry_stop,
            retry_on_exception=retry_on_selenium_exceptions)
-    def text(self, select_by, select_by_value=None, set_value=None):
-        """Gets or sets the value of an element
-        You can pass a CSS ID (e.g. '#textboxid') in the select_by,
-        or you can pass in a select type and value (e.g. 'name', 'textboxname')
+    def text(self, selector, set_value=None):
+        """Gets or sets the value/text of an element, selected by CSS
+        Optionally, you can pass in a tuple of ("select_by", "value")
         """
-        element = self.__get_element(select_by, select_by_value)
+        element = self.__get_element(selector)
         if set_value is None:
-            return element.get_attribute("value")
+            if element.tag_name.lower() in ["input", "select", "textarea"]:
+                return element.get_attribute("value")
+            else:
+                return element.text
         else:
             element.clear()
             element.send_keys(set_value)
@@ -179,13 +271,30 @@ class Locomotive(object):
            wait_exponential_max=retry_exp_max,
            stop_max_delay=retry_stop,
            retry_on_exception=retry_on_selenium_exceptions)
-    def click(self, select_by, select_by_value=None):
-        """Clicks an element
-        You can pass a CSS ID (e.g. '#submitbuttonid') in the select_by,
-        or you can pass in a select type and value (e.g. 'name', 'submitbuttonname')
+    def click(self, selector):
+        """Clicks an element, selected by CSS
+        Optionally, you can pass in a tuple of ("select_by", "value")
         """
-        self.__get_element(select_by, select_by_value).click()
+        self.__get_element(selector).click()
         return self
+
+    @retry(wait_exponential_multiplier=retry_exp_mult,
+           wait_exponential_max=retry_exp_max,
+           stop_max_delay=retry_stop,
+           retry_on_exception=retry_on_selenium_exceptions)
+    def check(self, selector, mark=True):
+        """Checks a checkbox/radio button, selected by CSS
+        Optionally, you can pass in a tuple of ("select_by", "value")
+        """
+        if self.is_checked(selector) is not mark:
+            self.click(selector)
+        return self
+
+    def uncheck(self, selector):
+        """Unchecks a checkbox/radio button, selected by CSS
+        Optionally, you can pass in a tuple of ("select_by", "value")
+        """
+        self.check(selector, False)
 
     @retry(wait_exponential_multiplier=retry_exp_mult,
            wait_exponential_max=retry_exp_max,
@@ -218,77 +327,3 @@ class Locomotive(object):
                     option_type))
         element.click()
         return self
-
-    # Here are more precise helper functions
-
-    # Text
-    def text_i(self, css_id, set_text=None):
-        """Gets or sets the text/value of an element, selected by CSS ID"""
-        return self.text("id", css_id, set_text)
-
-    def text_n(self, css_name, set_text=None):
-        """Gets or sets the text/value of an element, selected by CSS name"""
-        return self.text("name", css_name, set_text)
-
-    def text_c(self, css_selector, set_text=None):
-        """Gets or sets the text/value of an element, selected by custom CSS selector"""
-        return self.text("css", css_selector, set_text)
-
-    def text_x(self, xpath_selector, set_text=None):
-        """Gets or sets the text/value of an element, selected by custom XPATH selector"""
-        return self.text("xpath", xpath_selector, set_text)
-
-    # Click
-    def click_i(self, css_id):
-        """Clicks an element, selected by CSS ID"""
-        return self.click("id", css_id)
-
-    def click_n(self, css_name):
-        """Clicks an element, selected by CSS name"""
-        return self.click("name", css_name)
-
-    def click_c(self, css_selector):
-        """Clicks an element, selected by a custom CSS selector"""
-        return self.click("css", css_selector)
-
-    def click_x(self, xpath_selector):
-        """Clicks an element, selected by a custom XPATH selector"""
-        return self.click("xpath", xpath_selector)
-
-    def click_l(self, link_text):
-        """Clicks an element, selected by link text"""
-        return self.click("link", link_text)
-
-    # Select Text
-    def select_it(self, css_id, set_text=None):
-        """Gets or sets the option text of a select element, selected by CSS ID"""
-        return self.select("id", css_id, "text", set_text)
-
-    def select_nt(self, css_name, set_text=None):
-        """Gets or sets the option text of a select element, selected by name"""
-        return self.select("name", css_name, "text", set_text)
-
-    def select_ct(self, css_selector, set_text=None):
-        """Gets or sets the option text of a select element, selected by custom CSS selector"""
-        return self.select("css", css_selector, "text", set_text)
-
-    def select_xt(self, xpath_selector, set_text=None):
-        """Gets or sets the option text of a select element, selected by custom XPATH selector"""
-        return self.select("xpath", xpath_selector, "text", set_text)
-
-    # Select Value
-    def select_iv(self, css_id, set_value=None):
-        """Gets or sets the option value of a select element, selected by CSS ID"""
-        return self.select("id", css_id, "value", set_value)
-
-    def select_nv(self, css_name, set_value=None):
-        """Gets or sets the option value of a select element, selected by name"""
-        return self.select("name", css_name, "value", set_value)
-
-    def select_cv(self, css_selector, set_value=None):
-        """Gets or sets the option value of a select element, selected by custom CSS selector"""
-        return self.select("css", css_selector, "value", set_value)
-
-    def select_xv(self, xpath_selector, set_value=None):
-        """Gets or sets the option value of a select element, selected by custom XPATH selector"""
-        return self.select("xpath", xpath_selector, "value", set_value)
