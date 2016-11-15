@@ -21,6 +21,7 @@ from selenium.common.exceptions import (NoSuchElementException,
                                         NoSuchFrameException,
                                         NoSuchWindowException,
                                         WebDriverException)
+from selenium.webdriver.support.select import Select
 
 
 def retry_on_selenium_exceptions(exc):
@@ -300,30 +301,28 @@ class Locomotive(object):
            wait_exponential_max=retry_exp_max,
            stop_max_delay=retry_stop,
            retry_on_exception=retry_on_selenium_exceptions)
-    def select(self, select_by, select_by_value, option_type, set_value=None):
-        """Gets or sets the option value of a select element"""
-        option_type = option_type.lower()
-        select_by = select_by.lower()
-        if option_type not in ["text", "value"]:
-            raise NotImplementedError("Select option_type '{0}' not supported!".format(option_type))
-
-        # Setting and getting are completely different selectors
-        if set_value is None:
-            element = self.__get_element("css", "select[{0}='{1}']".format(select_by,
-                                                                           select_by_value))
-            return element.get_attribute(option_type)  # either text or value
+    def select_text(self, selector, set_text=None):
+        """Gets or sets the text of a select element, selected by CSS
+        Optionally, you can pass in a tuple of ("select_by", "value")
+        """
+        selector = Select(self.__get_element(selector))
+        if set_text is None:
+            return selector.first_selected_option.text
         else:
-            if option_type == "text":
-                element = self.__get_element(
-                    "xpath", "//select[@{0}='{1}']/option[normalize-space(.)='{2}']".format(
-                        select_by, select_by_value, set_value))
+            selector.select_by_visible_text(set_text)
+        return self
 
-            elif option_type == "value":
-                element = self.__get_element("css",
-                                             "select[{0}='{1}'] > option[value='{2}']".format(
-                                                 select_by, select_by_value, set_value))
-            else:
-                raise NotImplementedError("Select option_type '{0}' not supported!".format(
-                    option_type))
-        element.click()
+    @retry(wait_exponential_multiplier=retry_exp_mult,
+           wait_exponential_max=retry_exp_max,
+           stop_max_delay=retry_stop,
+           retry_on_exception=retry_on_selenium_exceptions)
+    def select_value(self, selector, set_value=None):
+        """Gets or sets the value of a select element, selected by CSS
+        Optionally, you can pass in a tuple of ("select_by", "value")
+        """
+        selector = Select(self.__get_element(selector))
+        if set_value is None:
+            return selector.first_selected_option.get_attribute("value")
+        else:
+            selector.select_by_value(set_value)
         return self
