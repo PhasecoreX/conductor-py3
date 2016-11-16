@@ -259,14 +259,19 @@ class Locomotive(object):
         """
         element = self.__get_element(selector)
         if set_value is None:
-            if element.tag_name.lower() in ["input", "select", "textarea"]:
+            if element.tag_name.lower() in ["input", "textarea"]:
                 return element.get_attribute("value")
+            elif element.tag_name.lower() == "select":
+                return self.select_text(selector)
             else:
                 return element.text
         else:
-            element.clear()
-            element.send_keys(set_value)
-            return self
+            if element.tag_name.lower() == "select":
+                return self.select_text(selector, set_value)
+            else:
+                element.clear()
+                element.send_keys(set_value)
+                return self
 
     @retry(wait_exponential_multiplier=retry_exp_mult,
            wait_exponential_max=retry_exp_max,
