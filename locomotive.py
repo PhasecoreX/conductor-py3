@@ -24,7 +24,7 @@ from selenium.common.exceptions import (NoSuchElementException,
 from selenium.webdriver.support.select import Select
 
 
-def retry_on_selenium_exceptions(exc):
+def selenium_exc(exc):
     """Determines whether the retry exception is a Selenium based one"""
     return isinstance(exc, NoSuchElementException) or isinstance(
         exc, WebDriverException) or isinstance(exc, NoSuchWindowException) or isinstance(
@@ -45,12 +45,9 @@ class Locomotive(object):
     """The locomotive class"""
     # pylint: disable=too-many-public-methods
 
-    driver = None
-    retry_exp_mult = 2
-    retry_exp_max = 1000
-    retry_stop = 10000
+    timeout = 10000
 
-    def __init__(self, browser, url=None, timeout=10):
+    def __init__(self, browser, url=None):
         """Ceates a new instance of Locomotive, given a browser name
         There are some optional parameters you can pass in:
 
@@ -80,7 +77,6 @@ class Locomotive(object):
         self.driver.implicitly_wait(1)
         if url is not None:
             self.get(url)
-        self.retry_stop = timeout * 1000
 
     def __get_element(self, selector, get_multiple=False):
         select_by, select_value = clean_selector(selector)
@@ -108,10 +104,7 @@ class Locomotive(object):
         else:
             return elements[0]
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def switch_to_window_regex(self, regex):
         """Switch to a window with a url or window title that is matched by regex"""
         pat = re.compile(regex)
@@ -147,10 +140,7 @@ class Locomotive(object):
         else:
             return self.close_window_regex(".*{0}.*".format(text))
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def switch_to_frame(self, id_or_name_or_index=None):
         """Switches to a frame, based on CSS ID, name, or index"""
         if id_or_name_or_index is None:
@@ -249,10 +239,7 @@ class Locomotive(object):
             raise NotImplementedError("Alert option '{0}' not supported! (Yet?)".format(option))
         return self
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def text(self, selector, set_value=None):
         """Gets or sets the value/text of an element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
@@ -273,10 +260,7 @@ class Locomotive(object):
                 element.send_keys(set_value)
                 return self
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def click(self, selector):
         """Clicks an element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
@@ -284,10 +268,7 @@ class Locomotive(object):
         self.__get_element(selector).click()
         return self
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def check(self, selector, mark=True):
         """Checks a checkbox/radio button, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
@@ -302,10 +283,7 @@ class Locomotive(object):
         """
         self.check(selector, False)
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def select_text(self, selector, set_text=None):
         """Gets or sets the text of a select element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
@@ -317,10 +295,7 @@ class Locomotive(object):
             selector.select_by_visible_text(set_text)
         return self
 
-    @retry(wait_exponential_multiplier=retry_exp_mult,
-           wait_exponential_max=retry_exp_max,
-           stop_max_delay=retry_stop,
-           retry_on_exception=retry_on_selenium_exceptions)
+    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
     def select_value(self, selector, set_value=None):
         """Gets or sets the value of a select element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
