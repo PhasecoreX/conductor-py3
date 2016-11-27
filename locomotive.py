@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 import re
-
-from retrying import retry
+import time
 from selenium import webdriver
 from selenium.common.exceptions import (NoSuchElementException,
                                         NoSuchFrameException,
@@ -24,11 +23,31 @@ from selenium.common.exceptions import (NoSuchElementException,
 from selenium.webdriver.support.select import Select
 
 
-def selenium_exc(exc):
-    """Determines whether the retry exception is a Selenium based one"""
-    return isinstance(exc, NoSuchElementException) or isinstance(
-        exc, WebDriverException) or isinstance(exc, NoSuchWindowException) or isinstance(
-            exc, NoSuchFrameException)
+def retry(exceptions, timeout=10, delay=0):
+    """Retry decorator"""
+    if delay < 0:
+        raise ValueError("delay must be 0 or greater")
+    indefinite = timeout < 0
+
+    def decorated(function):
+        """Decorated retry function"""
+
+        def wrapper(*args, **kwargs):
+            """Retry wrapper"""
+            end_time = time.time()
+            if not indefinite:
+                end_time += timeout
+            while True:
+                try:
+                    return function(*args, **kwargs)
+                except exceptions:
+                    if delay > 0:
+                        time.sleep(delay)
+                    if not indefinite and time.time() > end_time:
+                        break
+            return function(*args, **kwargs)
+        return wrapper
+    return decorated
 
 
 def clean_selector(selector):
@@ -38,229 +57,120 @@ def clean_selector(selector):
     elif isinstance(selector, str):
         return ("css", selector)
     else:
-        raise TypeError("selector must be a string or tuple (select_by, select_value)")
+        raise TypeError(
+            "selector must be a string or tuple (select_by, select_value)")
 
 
 class Locomotive(object):
     """The locomotive class"""
     # pylint: disable=too-many-public-methods
 
-    timeout = 10000
-
     def __init__(self, browser, url=None):
-        """Ceates a new instance of Locomotive, given a browser name
+        """Initializes an instance of Locomotive, given a browser name
+        You would then use it in a with statement to start the browser
+        E.G. 'with Locomotive("firefox") as driver:'
+
         There are some optional parameters you can pass in:
 
-        url:     Starting URL, so you don't have to manually call .get() afterwards
-        timeout: How long (in seconds) you want Locomotive to keep retrying an action
+        url: Starting URL, so you don't have to manually call .get() afterwards
         """
+        self._browser = browser.lower()
+        self._initial_url = url
+        self._driver = None
+
+    def __enter__(self):
         # pylint: disable=redefined-variable-type
-        browser = browser.lower()
-        if browser == "chrome":
-            self.driver = webdriver.Chrome()
-        elif browser == "firefox":
-            self.driver = webdriver.Firefox()
-        elif browser == "android":
-            self.driver = webdriver.Android()
-        elif browser == "edge":
-            self.driver = webdriver.Edge()
-        elif browser == "ie":
-            self.driver = webdriver.Ie()
-        elif browser == "opera":
-            self.driver = webdriver.Opera()
-        elif browser == "phantomjs":
-            self.driver = webdriver.PhantomJS()
-        elif browser == "safari":
-            self.driver = webdriver.Safari()
+        if self._browser == "chrome":
+            self._driver = webdriver.Chrome()
+        elif self._browser == "firefox":
+            self._driver = webdriver.Firefox()
+        elif self._browser == "android":
+            self._driver = webdriver.Android()
+        elif self._browser == "edge":
+            self._driver = webdriver.Edge()
+        elif self._browser == "ie":
+            self._driver = webdriver.Ie()
+        elif self._browser == "opera":
+            self._driver = webdriver.Opera()
+        elif self._browser == "phantomjs":
+            self._driver = webdriver.PhantomJS()
+        elif self._browser == "safari":
+            self._driver = webdriver.Safari()
         else:
-            raise NotImplementedError("Browser '{0}' not supported! (Yet?)".format(browser))
-        self.driver.implicitly_wait(1)
-        if url is not None:
-            self.get(url)
+            raise NotImplementedError(
+                "Browser '{0}' not supported! (Yet?)".format(self._browser))
+        # self._driver.implicitly_wait(1)
+        if self._initial_url is not None:
+            self.get(self._initial_url)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self._driver is not None:
+            self._driver.quit()
 
     def __get_element(self, selector, get_multiple=False):
+        """Gets a WebElement"""
         select_by, select_value = clean_selector(selector)
         # Find elements
         if select_by == "css":
-            elements = self.driver.find_elements_by_css_selector(select_value)
+            elements = self._driver.find_elements_by_css_selector(select_value)
         elif select_by == "id":
-            elements = self.driver.find_elements_by_id(select_value.strip("#"))
+            elements = self._driver.find_elements_by_id(
+                select_value.strip("#"))
         elif select_by == "name":
-            elements = self.driver.find_elements_by_name(select_value)
+            elements = self._driver.find_elements_by_name(select_value)
         elif select_by == "class":
-            elements = self.driver.find_elements_by_class_name(select_value)
+            elements = self._driver.find_elements_by_class_name(select_value)
         elif select_by == "link":
-            elements = self.driver.find_elements_by_link_text(select_value)
+            elements = self._driver.find_elements_by_link_text(select_value)
         elif select_by == "xpath":
-            elements = self.driver.find_elements_by_xpath(select_value)
+            elements = self._driver.find_elements_by_xpath(select_value)
         else:
-            raise NotImplementedError("select_by '{0}' not supported! (Yet?)".format(select_by))
+            raise NotImplementedError(
+                "select_by '{0}' not supported! (Yet?)".format(select_by))
         # Return one or all of the elements
         if get_multiple:
             return elements
         elif len(elements) == 0:
-            raise NoSuchElementException("No element found matching {0}({1})".format(select_by,
-                                                                                     select_value))
+            raise NoSuchElementException(
+                "No element found matching {0}({1})".format(select_by, select_value))
         else:
             return elements[0]
 
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
-    def switch_to_window_regex(self, regex):
-        """Switch to a window with a url or window title that is matched by regex"""
-        pat = re.compile(regex)
-        for handle in self.driver.window_handles:
-            self.driver.switch_to.window(handle)
-            if pat.match(self.driver.title) or pat.match(self.driver.current_url):
-                return self
-        raise NoSuchWindowException("Could not switch to window with title/url '{0}'".format(regex))
-
-    def switch_to_window(self, text):
-        """Switch to a window with a url or title containing certain text"""
-        return self.switch_to_window_regex(".*{0}.*".format(text))
-
-    def close_window_regex(self, regex):
-        """Close a window with a url or window title that is matched by regex"""
-        pat = re.compile(regex)
-        for handle in self.driver.window_handles:
-            self.driver.switch_to.window(handle)
-            if pat.match(self.driver.title) or pat.match(self.driver.current_url):
-                self.driver.close()
-                if len(self.driver.window_handles) == 1:
-                    self.driver.switch_to.window(self.driver.window_handles[0])
-                return self
-        raise NoSuchWindowException("Could not close window with title/url '{0}'".format(regex))
-
-    def close_window(self, text=None):
-        """Close current window, or a window with a url or title containing certain text"""
-        if text is None:
-            self.driver.close()
-            if len(self.driver.window_handles) == 1:
-                self.driver.switch_to.window(self.driver.window_handles[0])
-            return self
-        else:
-            return self.close_window_regex(".*{0}.*".format(text))
-
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
-    def switch_to_frame(self, id_or_name_or_index=None):
-        """Switches to a frame, based on CSS ID, name, or index"""
-        if id_or_name_or_index is None:
-            self.switch_to_default_content()
-        else:
-            self.driver.switch_to.frame(id_or_name_or_index)
-        return self
-
-    def switch_to_default_content(self):
-        """Switches to the default content/frame"""
-        self.driver.switch_to.default_content()
-        return self
+    # Navigation
 
     def get(self, url):
         """Navigate to a URL"""
-        self.driver.get(url)
+        self._driver.get(url)
         return self
 
-    # True/False methods
+    # Page manipulation
 
-    def is_checked(self, selector):
-        """Returns true if the selected checkbox/radio is checked/selected, false if not"""
-        return self.__get_element(selector).is_selected()
-
-    def is_present(self, selector):
-        """Returns true if at least one of the defined element is present and selectable"""
-        return len(self.__get_element(selector, get_multiple=True)) > 0
-
-    # Validation methods
-
-    def validate_present(self, selector):
-        """Validates that a element is selectable"""
-        select_by, select_value = clean_selector(selector)
-        assert self.is_present(
-            selector) is True, "{0}({1}) is not present on page, when it should be".format(
-                select_by, select_value)
-        return self
-
-    def validate_not_present(self, selector):
-        """Validates that a element is not selectable"""
-        select_by, select_value = clean_selector(selector)
-        assert self.is_present(
-            selector) is False, "{0}({1}) is present on page, when it should not be".format(
-                select_by, select_value)
-        return self
-
-    def validate_text(self, selector, text):
-        """Validates an elements text matches the given text"""
-        select_by, select_value = clean_selector(selector)
-        actual_text = self.text(selector)
-        assert actual_text == text, "{0}({1}) text does not equal '{2}' (actual: '{3}')".format(
-            select_by, select_value, text, actual_text)
-
-    def validate_text_not(self, selector, text):
-        """Validates an elements text matches the given text"""
-        select_by, select_value = clean_selector(selector)
-        assert self.text(
-            selector) != text, "{0}({1}) text does equal '{2}', when it should not".format(
-                select_by, select_value, text)
-
-    def validate_source_contains(self, text):
-        """Validates that text is present in the page source"""
-        assert text in self.driver.page_source, "{0} is not in page source, when it should be".format(
-            text)
-        return self
-
-    def validate_source_not_contains(self, text):
-        """Validates that text is present in the page source"""
-        assert text not in self.driver.page_source, "{0} is in page source, when it should not be".format(
-            text)
-        return self
-
-    def validate_checked(self, selector):
-        """Validates that a checkbox is checked"""
-        select_by, select_value = clean_selector(selector)
-        assert self.is_checked(selector), "{0}({1}) is not checked, when it should be".format(
-            select_by, select_value)
-        return self
-
-    def validate_unchecked(self, selector):
-        """Validates that a checkbox is checked"""
-        select_by, select_value = clean_selector(selector)
-        assert not self.is_checked(selector), "{0}({1}) is checked, when it should not be".format(
-            select_by, select_value)
-        return self
-
-    def alert(self, option, username="", password=""):
-        """Clicks an option in an alert"""
-        if option in ["ok", "y", "ye", "yes", "accept"]:
-            self.driver.switch_to_alert().accept()
-        elif option in ["cancel", "n", "no", "dismiss"]:
-            self.driver.switch_to_alert().dismiss()
-        elif option in ["auth", "a", "user", "password", "pass"]:
-            self.driver.switch_to_alert().authenticate(username, password)
-        else:
-            raise NotImplementedError("Alert option '{0}' not supported! (Yet?)".format(option))
-        return self
-
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
+    @retry(NoSuchElementException)
     def text(self, selector, set_value=None):
         """Gets or sets the value/text of an element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
         """
+        return self.__text(selector, set_value)
+
+    def __text(self, selector, set_value=None):
         element = self.__get_element(selector)
         if set_value is None:
             if element.tag_name.lower() in ["input", "textarea"]:
                 return element.get_attribute("value")
             elif element.tag_name.lower() == "select":
-                return self.select_text(selector)
+                return self.__select_text(selector)
             else:
                 return element.text
         else:
             if element.tag_name.lower() == "select":
-                return self.select_text(selector, set_value)
+                return self.__select_text(selector, set_value)
             else:
                 element.clear()
                 element.send_keys(set_value)
                 return self
 
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
+    @retry((NoSuchElementException, WebDriverException))
     def click(self, selector):
         """Clicks an element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
@@ -268,7 +178,7 @@ class Locomotive(object):
         self.__get_element(selector).click()
         return self
 
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
+    @retry(NoSuchElementException)
     def check(self, selector, mark=True):
         """Checks a checkbox/radio button, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
@@ -283,11 +193,18 @@ class Locomotive(object):
         """
         self.check(selector, False)
 
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
+    def is_checked(self, selector):
+        """Returns true if the selected checkbox/radio is checked/selected, false if not"""
+        return self.__get_element(selector).is_selected()
+
+    @retry(NoSuchElementException)
     def select_text(self, selector, set_text=None):
         """Gets or sets the text of a select element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
         """
+        return self.__select_text(selector, set_text)
+
+    def __select_text(self, selector, set_text=None):
         selector = Select(self.__get_element(selector))
         if set_text is None:
             return selector.first_selected_option.text
@@ -295,14 +212,191 @@ class Locomotive(object):
             selector.select_by_visible_text(set_text)
         return self
 
-    @retry(stop_max_delay=timeout, retry_on_exception=selenium_exc)
+    @retry(NoSuchElementException)
     def select_value(self, selector, set_value=None):
         """Gets or sets the value of a select element, selected by CSS
         Optionally, you can pass in a tuple of ("select_by", "value")
         """
+        return self.__select_value(selector, set_value)
+
+    def __select_value(self, selector, set_value=None):
         selector = Select(self.__get_element(selector))
         if set_value is None:
             return selector.first_selected_option.get_attribute("value")
         else:
             selector.select_by_value(set_value)
         return self
+
+    # Alert boxes
+
+    def alert(self, option, username="", password=""):
+        """Clicks an option in an alert"""
+        if option in ["ok", "y", "ye", "yes", "accept"]:
+            self._driver.switch_to.alert.accept()
+        elif option in ["cancel", "n", "no", "dismiss"]:
+            self._driver.switch_to.alert.dismiss()
+        elif option in ["auth", "a", "user", "password", "pass"]:
+            self._driver.switch_to.alert.authenticate(username, password)
+        else:
+            raise NotImplementedError(
+                "Alert option '{0}' not supported! (Yet?)".format(option))
+        return self
+
+    # Waiting
+
+    def wait(self, seconds):
+        """Pauses the script for a set amount of seconds"""
+        time.sleep(seconds)
+        return self
+
+    def wait_present(self, selector):
+        """Waits until an element is present on the page"""
+        while True:
+            try:
+                self.__get_element(selector)
+                return self
+            except NoSuchElementException:
+                time.sleep(0.25)
+
+    def wait_not_present(self, selector):
+        """Waits until an element is not present on the page"""
+        while True:
+            try:
+                self.__get_element(selector)
+            except NoSuchElementException:
+                return self
+            time.sleep(0.25)
+
+    # Window switching
+
+    @retry(NoSuchWindowException)
+    def switch_to_window_regex(self, regex):
+        """Switch to a window with a url or window title that is matched by regex"""
+        pat = re.compile(regex)
+        for handle in self._driver.window_handles:
+            self._driver.switch_to.window(handle)
+            if pat.match(self._driver.title) or pat.match(self._driver.current_url):
+                return self
+        raise NoSuchWindowException(
+            "Could not switch to window with title/url '{0}'".format(regex))
+
+    def switch_to_window(self, text):
+        """Switch to a window with a url or title containing certain text"""
+        return self.switch_to_window_regex(".*{0}.*".format(text))
+
+    @retry(NoSuchWindowException)
+    def close_window_regex(self, regex):
+        """Close a window with a url or window title that is matched by regex"""
+        pat = re.compile(regex)
+        for handle in self._driver.window_handles:
+            self._driver.switch_to.window(handle)
+            if pat.match(self._driver.title) or pat.match(self._driver.current_url):
+                self._driver.close()
+                if len(self._driver.window_handles) == 1:
+                    self._driver.switch_to.window(
+                        self._driver.window_handles[0])
+                return self
+        raise NoSuchWindowException(
+            "Could not close window with title/url '{0}'".format(regex))
+
+    def close_window(self, text=None):
+        """Close current window, or a window with a url or title containing certain text"""
+        if text is None:
+            self._driver.close()
+            if len(self._driver.window_handles) == 1:
+                self._driver.switch_to.window(self._driver.window_handles[0])
+            return self
+        else:
+            return self.close_window_regex(".*{0}.*".format(text))
+
+    # Frame switching
+
+    @retry(NoSuchFrameException)
+    def switch_to_frame(self, id_or_name_or_index=None):
+        """Switches to a frame, based on CSS ID, name, or index"""
+        if id_or_name_or_index is None:
+            self.switch_to_default_content()
+        else:
+            self._driver.switch_to.frame(id_or_name_or_index)
+        return self
+
+    def switch_to_default_content(self):
+        """Switches to the default content/frame"""
+        self._driver.switch_to.default_content()
+        return self
+
+    # Validation methods
+
+    @retry(AssertionError, timeout=2)
+    def validate_present(self, selector):
+        """Validates that a element is selectable"""
+        select_by, select_value = clean_selector(selector)
+        assert self.is_present(
+            selector) is True, "{0}({1}) is not present on page, when it should be".format(
+                select_by, select_value)
+        return self
+
+    @retry(AssertionError, timeout=2)
+    def validate_not_present(self, selector):
+        """Validates that a element is not selectable"""
+        select_by, select_value = clean_selector(selector)
+        assert self.is_present(
+            selector) is False, "{0}({1}) is present on page, when it should not be".format(
+                select_by, select_value)
+        return self
+
+    @retry((AssertionError, NoSuchElementException), timeout=2)
+    def validate_text(self, selector, text):
+        """Validates an elements text matches the given text"""
+        select_by, select_value = clean_selector(selector)
+        actual_text = self.__text(selector)
+        assert actual_text == text, "{0}({1}) text does not equal '{2}' (actual: '{3}')".format(
+            select_by, select_value, text, actual_text)
+
+    @retry((AssertionError, NoSuchElementException), timeout=2)
+    def validate_text_not(self, selector, text):
+        """Validates an elements text matches the given text"""
+        select_by, select_value = clean_selector(selector)
+        assert self.__text(
+            selector) != text, "{0}({1}) text does equal '{2}', when it should not".format(
+                select_by, select_value, text)
+
+    @retry(AssertionError, timeout=2)
+    def validate_source_contains(self, text):
+        """Validates that text is present in the page source"""
+        assert text in self._driver.page_source, (
+            "{0} is not in page source, when it should be".format(text))
+        return self
+
+    @retry(AssertionError, timeout=2)
+    def validate_source_not_contains(self, text):
+        """Validates that text is present in the page source"""
+        assert text not in self._driver.page_source, (
+            "{0} is in page source, when it should not be".format(text))
+        return self
+
+    @retry((AssertionError, NoSuchElementException), timeout=2)
+    def validate_checked(self, selector):
+        """Validates that a checkbox is checked"""
+        select_by, select_value = clean_selector(selector)
+        assert self.is_checked(selector), "{0}({1}) is not checked, when it should be".format(
+            select_by, select_value)
+        return self
+
+    @retry((AssertionError, NoSuchElementException), timeout=2)
+    def validate_unchecked(self, selector):
+        """Validates that a checkbox is checked"""
+        select_by, select_value = clean_selector(selector)
+        assert not self.is_checked(selector), "{0}({1}) is checked, when it should not be".format(
+            select_by, select_value)
+        return self
+
+    # Helper methods
+
+    def is_present(self, selector):
+        """Returns true if at least one of the defined element is present and selectable"""
+        return self.count_present(selector) > 0
+
+    def count_present(self, selector):
+        """Returns the number of elements selected by the selector"""
+        return len(self.__get_element(selector, get_multiple=True))
