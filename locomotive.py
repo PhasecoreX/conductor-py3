@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
+import math
 import re
 import time
 from selenium import webdriver
@@ -23,17 +24,19 @@ from selenium.common.exceptions import (NoSuchElementException,
 from selenium.webdriver.support.select import Select
 
 
-def retry(exceptions, timeout=10, delay=0):
+def retry(exceptions, timeout=10, delay=0, tries=10):
     """Retry decorator"""
     if delay < 0:
         raise ValueError("delay must be 0 or greater")
     indefinite = timeout < 0
+    tries = math.ceil(tries)
 
     def decorated(function):
         """Decorated retry function"""
 
         def wrapper(*args, **kwargs):
             """Retry wrapper"""
+            min_tries = tries - 2
             end_time = time.time()
             if not indefinite:
                 end_time += timeout
@@ -43,8 +46,10 @@ def retry(exceptions, timeout=10, delay=0):
                 except exceptions:
                     if delay > 0:
                         time.sleep(delay)
-                    if not indefinite and time.time() > end_time:
+                    if not indefinite and time.time() > end_time and min_tries < 1:
                         break
+                if min_tries > 0:
+                    min_tries -= 1
             return function(*args, **kwargs)
         return wrapper
     return decorated
