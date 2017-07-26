@@ -91,3 +91,6 @@ ENV/
 # eclipse
 .project
 .pydevproject
+
+# atom
+.atomignore

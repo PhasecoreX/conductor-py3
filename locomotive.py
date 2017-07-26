@@ -16,6 +16,7 @@ limitations under the License.
 import math
 import re
 import time
+
 from selenium import webdriver
 from selenium.common.exceptions import (NoSuchElementException,
                                         NoSuchFrameException,
@@ -51,7 +52,9 @@ def retry(exceptions, timeout=10, delay=0, tries=10):
                 if min_tries > 0:
                     min_tries -= 1
             return function(*args, **kwargs)
+
         return wrapper
+
     return decorated
 
 
@@ -62,12 +65,12 @@ def clean_selector(selector):
     elif isinstance(selector, str):
         return ("css", selector)
     else:
-        raise TypeError(
-            "selector must be a string or tuple (select_by, select_value)")
+        raise TypeError("selector must be a string or tuple (select_by, select_value)")
 
 
 class Locomotive(object):
     """The locomotive class"""
+
     # pylint: disable=too-many-public-methods
 
     def __init__(self, browser, url=None):
@@ -84,7 +87,6 @@ class Locomotive(object):
         self._driver = None
 
     def __enter__(self):
-        # pylint: disable=redefined-variable-type
         if self._browser == "chrome":
             self._driver = webdriver.Chrome()
         elif self._browser == "firefox":
@@ -102,8 +104,7 @@ class Locomotive(object):
         elif self._browser == "safari":
             self._driver = webdriver.Safari()
         else:
-            raise NotImplementedError(
-                "Browser '{0}' not supported! (Yet?)".format(self._browser))
+            raise NotImplementedError("Browser '{0}' not supported! (Yet?)".format(self._browser))
         # self._driver.implicitly_wait(1)
         if self._initial_url is not None:
             self.get(self._initial_url)
@@ -120,8 +121,7 @@ class Locomotive(object):
         if select_by == "css":
             elements = self._driver.find_elements_by_css_selector(select_value)
         elif select_by == "id":
-            elements = self._driver.find_elements_by_id(
-                select_value.strip("#"))
+            elements = self._driver.find_elements_by_id(select_value.strip("#"))
         elif select_by == "name":
             elements = self._driver.find_elements_by_name(select_value)
         elif select_by == "class":
@@ -131,12 +131,11 @@ class Locomotive(object):
         elif select_by == "xpath":
             elements = self._driver.find_elements_by_xpath(select_value)
         else:
-            raise NotImplementedError(
-                "select_by '{0}' not supported! (Yet?)".format(select_by))
+            raise NotImplementedError("select_by '{0}' not supported! (Yet?)".format(select_by))
         # Return one or all of the elements
         if get_multiple:
             return elements
-        elif len(elements) == 0:
+        elif not elements:
             raise NoSuchElementException(
                 "No element found matching {0}({1})".format(select_by, select_value))
         else:
@@ -160,20 +159,20 @@ class Locomotive(object):
 
     def __text(self, selector, set_value=None):
         element = self.__get_element(selector)
+        # Get text
         if set_value is None:
             if element.tag_name.lower() in ["input", "textarea"]:
                 return element.get_attribute("value")
             elif element.tag_name.lower() == "select":
                 return self.__select_text(selector)
-            else:
-                return element.text
-        else:
-            if element.tag_name.lower() == "select":
-                return self.__select_text(selector, set_value)
-            else:
-                element.clear()
-                element.send_keys(set_value)
-                return self
+            return element.text
+        # Set select text
+        if element.tag_name.lower() == "select":
+            return self.__select_text(selector, set_value)
+        # Else just type
+        element.clear()
+        element.send_keys(set_value)
+        return self
 
     @retry((NoSuchElementException, WebDriverException))
     def click(self, selector):
@@ -243,8 +242,7 @@ class Locomotive(object):
         elif option in ["auth", "a", "user", "password", "pass"]:
             self._driver.switch_to.alert.authenticate(username, password)
         else:
-            raise NotImplementedError(
-                "Alert option '{0}' not supported! (Yet?)".format(option))
+            raise NotImplementedError("Alert option '{0}' not supported! (Yet?)".format(option))
         return self
 
     # Waiting
@@ -272,6 +270,22 @@ class Locomotive(object):
                 return self
             time.sleep(0.25)
 
+    def wait_source(self, source):
+        """Waits until a string is present in the page source code"""
+        while True:
+            if source in self._driver.page_source:
+                return self
+            else:
+                time.sleep(0.25)
+
+    def wait_not_source(self, source):
+        """Waits until a string is not present in the page source code"""
+        while True:
+            if source not in self._driver.page_source:
+                return self
+            else:
+                time.sleep(0.25)
+
     # Window switching
 
     @retry(NoSuchWindowException)
@@ -282,8 +296,7 @@ class Locomotive(object):
             self._driver.switch_to.window(handle)
             if pat.match(self._driver.title) or pat.match(self._driver.current_url):
                 return self
-        raise NoSuchWindowException(
-            "Could not switch to window with title/url '{0}'".format(regex))
+        raise NoSuchWindowException("Could not switch to window with title/url '{0}'".format(regex))
 
     def switch_to_window(self, text):
         """Switch to a window with a url or title containing certain text"""
@@ -298,11 +311,9 @@ class Locomotive(object):
             if pat.match(self._driver.title) or pat.match(self._driver.current_url):
                 self._driver.close()
                 if len(self._driver.window_handles) == 1:
-                    self._driver.switch_to.window(
-                        self._driver.window_handles[0])
+                    self._driver.switch_to.window(self._driver.window_handles[0])
                 return self
-        raise NoSuchWindowException(
-            "Could not close window with title/url '{0}'".format(regex))
+        raise NoSuchWindowException("Could not close window with title/url '{0}'".format(regex))
 
     def close_window(self, text=None):
         """Close current window, or a window with a url or title containing certain text"""
@@ -375,7 +386,7 @@ class Locomotive(object):
 
     @retry(AssertionError, timeout=2)
     def validate_source_not_contains(self, text):
-        """Validates that text is present in the page source"""
+        """Validates that text is not present in the page source"""
         assert text not in self._driver.page_source, (
             "{0} is in page source, when it should not be".format(text))
         return self
@@ -390,7 +401,7 @@ class Locomotive(object):
 
     @retry((AssertionError, NoSuchElementException), timeout=2)
     def validate_unchecked(self, selector):
-        """Validates that a checkbox is checked"""
+        """Validates that a checkbox is not checked"""
         select_by, select_value = clean_selector(selector)
         assert not self.is_checked(selector), "{0}({1}) is checked, when it should not be".format(
             select_by, select_value)
